@@ -53,7 +53,7 @@ wbParser/
 ### 1. Клонирование репозитория
 
 ```bash
-git clone <url-репозитория>
+git clone git@github.com:Killmonger01/wbParser.git
 cd wbParser
 ```
 
