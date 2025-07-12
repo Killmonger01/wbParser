@@ -38,7 +38,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'products',
-    'corsheaders'
+    'corsheaders',
+    'rest_framework'
 ]
 
 MIDDLEWARE = [
@@ -114,6 +115,14 @@ USE_I18N = True
 CORS_ALLOW_ALL_ORIGINS = True
 
 USE_TZ = True
+
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': (
+        'rest_framework.renderers.JSONRenderer',
+        # если хочешь browsable API в браузере:
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    )
+}
 
 
 # Static files (CSS, JavaScript, Images)

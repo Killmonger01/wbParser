@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Filter, TrendingUp, BarChart3, LineChart, RefreshCw, ShoppingCart } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart as RechartsLineChart, Line, Scatter, ScatterChart } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter } from 'recharts';
 
 const WildberriesDashboard = () => {
   const [products, setProducts] = useState([]);
@@ -8,8 +8,7 @@ const WildberriesDashboard = () => {
   const [parsing, setParsing] = useState(false);
   const [categories, setCategories] = useState([]);
   const [statistics, setStatistics] = useState({});
-  
-  // Фильтры
+
   const [filters, setFilters] = useState({
     minPrice: 0,
     maxPrice: 100000,
@@ -18,15 +17,11 @@ const WildberriesDashboard = () => {
     category: '',
     searchQuery: ''
   });
-  
-  // Сортировка
+
   const [sorting, setSorting] = useState({ field: 'created_at', direction: 'desc' });
-  
-  // Парсинг товаров
   const [parseQuery, setParseQuery] = useState('');
   const [parseLimit, setParseLimit] = useState(50);
 
-  // Загрузка данных
   const fetchProducts = async () => {
     setLoading(true);
     try {
@@ -37,14 +32,13 @@ const WildberriesDashboard = () => {
       if (filters.minReviews > 0) params.append('min_reviews', filters.minReviews);
       if (filters.category) params.append('category', filters.category);
       params.append('ordering', `${sorting.direction === 'desc' ? '-' : ''}${sorting.field}`);
-      
+
       const response = await fetch(`http://localhost:8000/api/products/?${params}`);
       const data = await response.json();
       setProducts(data.results || []);
     } catch (error) {
       console.error('Ошибка загрузки товаров:', error);
-      // Генерируем тестовые данные
-      setProducts(generateTestData());
+      setProducts([]);
     }
     setLoading(false);
   };
@@ -56,7 +50,7 @@ const WildberriesDashboard = () => {
       setCategories(data);
     } catch (error) {
       console.error('Ошибка загрузки категорий:', error);
-      setCategories(['смартфоны', 'одежда', 'обувь', 'электроника', 'книги']);
+      setCategories([]);
     }
   };
 
@@ -70,10 +64,8 @@ const WildberriesDashboard = () => {
     }
   };
 
-  // Парсинг новых товаров
   const parseProducts = async () => {
     if (!parseQuery.trim()) return;
-    
     setParsing(true);
     try {
       const response = await fetch('http://localhost:8000/api/parse/', {
@@ -82,7 +74,6 @@ const WildberriesDashboard = () => {
         body: JSON.stringify({ query: parseQuery, limit: parseLimit })
       });
       const data = await response.json();
-      
       if (response.ok) {
         alert(`Успешно спарсено ${data.count} товаров!`);
         fetchProducts();
@@ -98,32 +89,6 @@ const WildberriesDashboard = () => {
     setParsing(false);
   };
 
-  // Генерация тестовых данных
-  const generateTestData = () => {
-    const categories = ['Смартфоны', 'Ноутбуки', 'Одежда', 'Обувь', 'Косметика'];
-    const data = [];
-    
-    for (let i = 0; i < 100; i++) {
-      const price = Math.floor(Math.random() * 50000) + 1000;
-      const discount = Math.floor(Math.random() * 40) + 5;
-      const discountPrice = price * (100 - discount) / 100;
-      
-      data.push({
-        id: i + 1,
-        name: `Товар ${categories[Math.floor(Math.random() * categories.length)]} #${i + 1}`,
-        price: price,
-        discount_price: Math.floor(discountPrice),
-        rating: +(Math.random() * 2 + 3).toFixed(1),
-        reviews_count: Math.floor(Math.random() * 2000) + 10,
-        category: categories[Math.floor(Math.random() * categories.length)],
-        discount_percentage: Math.floor((1 - discountPrice / price) * 100)
-      });
-    }
-    
-    return data;
-  };
-
-  // Фильтрация товаров
   const filteredProducts = useMemo(() => {
     return products.filter(product => {
       return product.discount_price >= filters.minPrice &&
@@ -135,7 +100,6 @@ const WildberriesDashboard = () => {
     });
   }, [products, filters]);
 
-  // Данные для гистограммы цен
   const priceDistributionData = useMemo(() => {
     const ranges = [
       { label: '0-5k', min: 0, max: 5000 },
@@ -144,28 +108,23 @@ const WildberriesDashboard = () => {
       { label: '20k-30k', min: 20000, max: 30000 },
       { label: '30k+', min: 30000, max: 999999 }
     ];
-    
     return ranges.map(range => ({
       range: range.label,
       count: filteredProducts.filter(p => p.discount_price >= range.min && p.discount_price < range.max).length
     }));
   }, [filteredProducts]);
 
-  // Данные для линейного графика (скидка vs рейтинг)
   const discountRatingData = useMemo(() => {
     return filteredProducts.map(product => ({
       rating: product.rating,
-      discount: product.discount_percentage || 0,
-      name: product.name
+      discount: product.discount_percentage || 0
     })).filter(item => item.discount > 0);
   }, [filteredProducts]);
 
   useEffect(() => {
-    if (products.length === 0) {
-      setProducts(generateTestData());
-    }
     fetchCategories();
     fetchStatistics();
+    fetchProducts();
   }, []);
 
   useEffect(() => {
@@ -178,6 +137,12 @@ const WildberriesDashboard = () => {
       direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
     }));
   };
+
+  // Debugging: log chart data
+  useEffect(() => {
+    console.log('priceDistributionData', priceDistributionData);
+    console.log('discountRatingData', discountRatingData);
+  }, [priceDistributionData, discountRatingData]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100">
@@ -356,30 +321,36 @@ const WildberriesDashboard = () => {
           <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-white/50">
             <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-blue-600" />
-              Распределение по ценам
+              HELLO WORLD
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={priceDistributionData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e7ff" />
-                <XAxis dataKey="range" tick={{ fill: '#6b7280' }} />
-                <YAxis tick={{ fill: '#6b7280' }} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'rgba(255,255,255,0.95)', 
-                    border: 'none', 
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
-                  }} 
-                />
-                <Bar dataKey="count" fill="url(#barGradient)" radius={[4, 4, 0, 0]} />
-                <defs>
-                  <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.6}/>
-                  </linearGradient>
-                </defs>
-              </BarChart>
-            </ResponsiveContainer>
+            {priceDistributionData.some(item => item.count > 0) ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={priceDistributionData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e7ff" />
+                  <XAxis dataKey="range" tick={{ fill: '#6b7280' }} />
+                  <YAxis tick={{ fill: '#6b7280' }} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'rgba(255,255,255,0.95)', 
+                      border: 'none', 
+                      borderRadius: '12px',
+                      boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
+                    }} 
+                  />
+                  <Bar dataKey="count" fill="url(#barGradient)" radius={[4, 4, 0, 0]} />
+                  <defs>
+                    <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.6}/>
+                    </linearGradient>
+                  </defs>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-gray-400 text-lg">
+                Нет данных для отображения
+              </div>
+            )}
           </div>
 
           {/* Скаттер-диаграмма скидка vs рейтинг */}
@@ -388,38 +359,44 @@ const WildberriesDashboard = () => {
               <LineChart className="w-5 h-5 text-green-600" />
               Скидка vs Рейтинг
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <ScatterChart data={discountRatingData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e0e7ff" />
-                <XAxis 
-                  type="number" 
-                  dataKey="rating" 
-                  domain={[0, 5]} 
-                  tick={{ fill: '#6b7280' }}
-                  label={{ value: 'Рейтинг', position: 'insideBottom', offset: -5, style: { fill: '#6b7280' } }}
-                />
-                <YAxis 
-                  type="number" 
-                  dataKey="discount" 
-                  tick={{ fill: '#6b7280' }}
-                  label={{ value: 'Скидка (%)', angle: -90, position: 'insideLeft', style: { fill: '#6b7280' } }}
-                />
-                <Tooltip 
-                  cursor={{ strokeDasharray: '3 3' }}
-                  contentStyle={{ 
-                    backgroundColor: 'rgba(255,255,255,0.95)', 
-                    border: 'none', 
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
-                  }}
-                  formatter={(value, name) => [
-                    name === 'discount' ? `${value}%` : value,
-                    name === 'discount' ? 'Скидка' : 'Рейтинг'
-                  ]}
-                />
-                <Scatter dataKey="discount" fill="#10b981" fillOpacity={0.7} />
-              </ScatterChart>
-            </ResponsiveContainer>
+            {discountRatingData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <ScatterChart data={discountRatingData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e7ff" />
+                  <XAxis 
+                    type="number" 
+                    dataKey="rating" 
+                    domain={[0, 5]} 
+                    tick={{ fill: '#6b7280' }}
+                    label={{ value: 'Рейтинг', position: 'insideBottom', offset: -5, style: { fill: '#6b7280' } }}
+                  />
+                  <YAxis 
+                    type="number" 
+                    dataKey="discount" 
+                    tick={{ fill: '#6b7280' }}
+                    label={{ value: 'Скидка (%)', angle: -90, position: 'insideLeft', style: { fill: '#6b7280' } }}
+                  />
+                  <Tooltip 
+                    cursor={{ strokeDasharray: '3 3' }}
+                    contentStyle={{ 
+                      backgroundColor: 'rgba(255,255,255,0.95)', 
+                      border: 'none', 
+                      borderRadius: '12px',
+                      boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
+                    }}
+                    formatter={(value, name) => [
+                      name === 'discount' ? `${value}%` : value,
+                      name === 'discount' ? 'Скидка' : 'Рейтинг'
+                    ]}
+                  />
+                  <Scatter dataKey="discount" fill="#10b981" fillOpacity={0.7} />
+                </ScatterChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center text-gray-400 text-lg">
+                Нет данных для отображения
+              </div>
+            )}
           </div>
         </div>
 
