@@ -8,6 +8,7 @@ const WildberriesDashboard = () => {
   const [parsing, setParsing] = useState(false);
   const [categories, setCategories] = useState([]);
   const [statistics, setStatistics] = useState({});
+  const [priceDistribution, setPriceDistribution] = useState([]);
 
   const [filters, setFilters] = useState({
     minPrice: 0,
@@ -22,6 +23,9 @@ const WildberriesDashboard = () => {
   const [parseQuery, setParseQuery] = useState('');
   const [parseLimit, setParseLimit] = useState(50);
 
+  const API_BASE = 'http://localhost:8000/api';
+
+  // Загрузка товаров с API
   const fetchProducts = async () => {
     setLoading(true);
     try {
@@ -33,104 +37,118 @@ const WildberriesDashboard = () => {
       if (filters.category) params.append('category', filters.category);
       params.append('ordering', `${sorting.direction === 'desc' ? '-' : ''}${sorting.field}`);
 
-      const response = await fetch(`http://localhost:8000/api/products/?${params}`);
+      const response = await fetch(`${API_BASE}/products/?${params}`);
+      if (!response.ok) throw new Error('Ошибка загрузки товаров');
+      
       const data = await response.json();
-      setProducts(data.results || []);
+      setProducts(data.results || data || []);
     } catch (error) {
       console.error('Ошибка загрузки товаров:', error);
+      alert('Ошибка загрузки товаров. Убедитесь, что бэкенд запущен на localhost:8000');
       setProducts([]);
     }
     setLoading(false);
   };
 
+  // Загрузка категорий
   const fetchCategories = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/categories/');
+      const response = await fetch(`${API_BASE}/categories/`);
+      if (!response.ok) throw new Error('Ошибка загрузки категорий');
+      
       const data = await response.json();
-      setCategories(data);
+      setCategories(data || []);
     } catch (error) {
       console.error('Ошибка загрузки категорий:', error);
-      setCategories([]);
     }
   };
 
+  // Загрузка статистики
   const fetchStatistics = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/statistics/');
+      const response = await fetch(`${API_BASE}/statistics/`);
+      if (!response.ok) throw new Error('Ошибка загрузки статистики');
+      
       const data = await response.json();
-      setStatistics(data);
+      setStatistics(data || {});
     } catch (error) {
       console.error('Ошибка загрузки статистики:', error);
     }
   };
 
+  // Загрузка распределения цен
+  const fetchPriceDistribution = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/price-distribution/`);
+      if (!response.ok) throw new Error('Ошибка загрузки распределения цен');
+      
+      const data = await response.json();
+      setPriceDistribution(data || []);
+    } catch (error) {
+      console.error('Ошибка загрузки распределения цен:', error);
+    }
+  };
+
+  // Парсинг товаров
   const parseProducts = async () => {
-    if (!parseQuery.trim()) return;
+    if (!parseQuery.trim()) {
+      alert('Введите запрос для парсинга');
+      return;
+    }
+    
     setParsing(true);
     try {
-      const response = await fetch('http://localhost:8000/api/parse/', {
+      const response = await fetch(`${API_BASE}/parse/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: parseQuery, limit: parseLimit })
+        body: JSON.stringify({ 
+          query: parseQuery, 
+          limit: parseLimit 
+        })
       });
+      
       const data = await response.json();
+      
       if (response.ok) {
         alert(`Успешно спарсено ${data.count} товаров!`);
-        fetchProducts();
-        fetchCategories();
-        fetchStatistics();
+        // Обновляем все данные
+        await Promise.all([
+          fetchProducts(),
+          fetchCategories(),
+          fetchStatistics(),
+          fetchPriceDistribution()
+        ]);
       } else {
-        alert(`Ошибка: ${data.error}`);
+        alert(`Ошибка парсинга: ${data.error || 'Неизвестная ошибка'}`);
       }
     } catch (error) {
       console.error('Ошибка парсинга:', error);
-      alert('Ошибка парсинга товаров');
+      alert('Ошибка парсинга товаров. Проверьте подключение к бэкенду.');
     }
     setParsing(false);
   };
 
+  // Фильтрация товаров на фронтенде (дополнительная к серверной)
   const filteredProducts = useMemo(() => {
     return products.filter(product => {
-      return product.discount_price >= filters.minPrice &&
-             product.discount_price <= filters.maxPrice &&
-             product.rating >= filters.minRating &&
-             product.reviews_count >= filters.minReviews &&
-             (filters.category === '' || product.category.toLowerCase().includes(filters.category.toLowerCase())) &&
-             (filters.searchQuery === '' || product.name.toLowerCase().includes(filters.searchQuery.toLowerCase()));
+      const matchesSearch = filters.searchQuery === '' || 
+        product.name.toLowerCase().includes(filters.searchQuery.toLowerCase());
+      
+      return matchesSearch;
     });
-  }, [products, filters]);
+  }, [products, filters.searchQuery]);
 
-  const priceDistributionData = useMemo(() => {
-    const ranges = [
-      { label: '0-5k', min: 0, max: 5000 },
-      { label: '5k-10k', min: 5000, max: 10000 },
-      { label: '10k-20k', min: 10000, max: 20000 },
-      { label: '20k-30k', min: 20000, max: 30000 },
-      { label: '30k+', min: 30000, max: 999999 }
-    ];
-    return ranges.map(range => ({
-      range: range.label,
-      count: filteredProducts.filter(p => p.discount_price >= range.min && p.discount_price < range.max).length
-    }));
-  }, [filteredProducts]);
-
+  // Данные для scatter-диаграммы (скидка vs рейтинг)
   const discountRatingData = useMemo(() => {
-    return filteredProducts.map(product => ({
-      rating: product.rating,
-      discount: product.discount_percentage || 0
-    })).filter(item => item.discount > 0);
+    return filteredProducts
+      .filter(product => product.discount_percentage > 0)
+      .map(product => ({
+        rating: product.rating,
+        discount: product.discount_percentage
+      }));
   }, [filteredProducts]);
 
-  useEffect(() => {
-    fetchCategories();
-    fetchStatistics();
-    fetchProducts();
-  }, []);
-
-  useEffect(() => {
-    fetchProducts();
-  }, [filters, sorting]);
-
+  // Обработчик сортировки
   const handleSort = (field) => {
     setSorting(prev => ({
       field,
@@ -138,11 +156,24 @@ const WildberriesDashboard = () => {
     }));
   };
 
-  // Debugging: log chart data
+  // Первоначальная загрузка данных
   useEffect(() => {
-    console.log('priceDistributionData', priceDistributionData);
-    console.log('discountRatingData', discountRatingData);
-  }, [priceDistributionData, discountRatingData]);
+    const loadInitialData = async () => {
+      await Promise.all([
+        fetchProducts(),
+        fetchCategories(),
+        fetchStatistics(),
+        fetchPriceDistribution()
+      ]);
+    };
+    
+    loadInitialData();
+  }, []);
+
+  // Обновление товаров при изменении фильтров и сортировки
+  useEffect(() => {
+    fetchProducts();
+  }, [filters, sorting]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100">
@@ -158,11 +189,22 @@ const WildberriesDashboard = () => {
           <p className="text-gray-600 text-lg">Аналитика товаров с интерактивными фильтрами и диаграммами</p>
         </div>
 
+        {/* Состояние подключения */}
+        <div className="bg-blue-100 border border-blue-300 rounded-lg p-4 mb-6">
+          <h3 className="font-bold text-blue-800 mb-2">📊 Состояние данных:</h3>
+          <div className="text-sm text-blue-700 grid grid-cols-2 md:grid-cols-4 gap-2">
+            <p>• Товаров: <strong>{products.length}</strong></p>
+            <p>• Категорий: <strong>{categories.length}</strong></p>
+            <p>• Отфильтровано: <strong>{filteredProducts.length}</strong></p>
+            <p>• Scatter точек: <strong>{discountRatingData.length}</strong></p>
+          </div>
+        </div>
+
         {/* Парсинг товаров */}
         <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl p-6 mb-8 border border-white/50">
           <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
             <Search className="w-6 h-6 text-purple-600" />
-            Парсинг товаров
+            Парсинг товаров с Wildberries
           </h2>
           <div className="flex flex-wrap gap-4 items-end">
             <div className="flex-1 min-w-64">
@@ -194,6 +236,18 @@ const WildberriesDashboard = () => {
               {parsing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
               {parsing ? 'Парсинг...' : 'Спарсить'}
             </button>
+            <button
+              onClick={() => {
+                fetchProducts();
+                fetchCategories();
+                fetchStatistics();
+                fetchPriceDistribution();
+              }}
+              className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all flex items-center gap-2"
+            >
+              <RefreshCw className="w-5 h-5" />
+              Обновить
+            </button>
           </div>
         </div>
 
@@ -202,22 +256,25 @@ const WildberriesDashboard = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             {[
               { label: 'Всего товаров', value: statistics.total_products, icon: ShoppingCart, color: 'from-blue-500 to-blue-600' },
-              { label: 'Средняя цена', value: `${statistics.avg_price?.toLocaleString()} ₽`, icon: TrendingUp, color: 'from-green-500 to-green-600' },
-              { label: 'Средний рейтинг', value: statistics.avg_rating?.toFixed(1), icon: BarChart3, color: 'from-yellow-500 to-yellow-600' },
-              { label: 'Среднее отзывов', value: Math.round(statistics.avg_reviews), icon: LineChart, color: 'from-purple-500 to-purple-600' }
-            ].map((stat, index) => (
-              <div key={index} className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-white/50 hover:shadow-xl transition-all">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
-                    <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
-                  </div>
-                  <div className={`p-3 rounded-xl bg-gradient-to-r ${stat.color}`}>
-                    <stat.icon className="w-6 h-6 text-white" />
+              { label: 'Средняя цена', value: `${Math.round(statistics.avg_price || 0).toLocaleString()} ₽`, icon: TrendingUp, color: 'from-green-500 to-green-600' },
+              { label: 'Средний рейтинг', value: (statistics.avg_rating || 0).toFixed(1), icon: BarChart3, color: 'from-yellow-500 to-yellow-600' },
+              { label: 'Среднее отзывов', value: Math.round(statistics.avg_reviews || 0), icon: LineChart, color: 'from-purple-500 to-purple-600' }
+            ].map((stat, index) => {
+              const IconComponent = stat.icon;
+              return (
+                <div key={index} className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-white/50 hover:shadow-xl transition-all">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
+                      <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
+                    </div>
+                    <div className={`p-3 rounded-xl bg-gradient-to-r ${stat.color}`}>
+                      <IconComponent className="w-6 h-6 text-white" />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -263,7 +320,7 @@ const WildberriesDashboard = () => {
                   step="1000"
                   value={filters.minPrice}
                   onChange={(e) => setFilters(prev => ({ ...prev, minPrice: Number(e.target.value) }))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                  className="w-full"
                 />
                 <input
                   type="range"
@@ -272,7 +329,7 @@ const WildberriesDashboard = () => {
                   step="1000"
                   value={filters.maxPrice}
                   onChange={(e) => setFilters(prev => ({ ...prev, maxPrice: Number(e.target.value) }))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                  className="w-full"
                 />
               </div>
             </div>
@@ -287,12 +344,12 @@ const WildberriesDashboard = () => {
                 step="0.1"
                 value={filters.minRating}
                 onChange={(e) => setFilters(prev => ({ ...prev, minRating: Number(e.target.value) }))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                className="w-full"
               />
             </div>
           </div>
           <div className="mt-4 flex justify-between items-center">
-            <div>
+            <div className="flex-1 mr-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Минимум отзывов: {filters.minReviews}
               </label>
@@ -303,12 +360,12 @@ const WildberriesDashboard = () => {
                 step="10"
                 value={filters.minReviews}
                 onChange={(e) => setFilters(prev => ({ ...prev, minReviews: Number(e.target.value) }))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                className="w-full"
               />
             </div>
             <button
               onClick={() => setFilters({ minPrice: 0, maxPrice: 100000, minRating: 0, minReviews: 0, category: '', searchQuery: '' })}
-              className="ml-4 px-4 py-2 bg-gray-500 text-white rounded-xl hover:bg-gray-600 transition-all"
+              className="px-4 py-2 bg-gray-500 text-white rounded-xl hover:bg-gray-600 transition-all"
             >
               Сбросить фильтры
             </button>
@@ -321,11 +378,11 @@ const WildberriesDashboard = () => {
           <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-white/50">
             <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-blue-600" />
-              HELLO WORLD
+              Распределение по ценам
             </h3>
-            {priceDistributionData.some(item => item.count > 0) ? (
+            {priceDistribution.length > 0 && priceDistribution.some(item => item.count > 0) ? (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={priceDistributionData}>
+                <BarChart data={priceDistribution} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e0e7ff" />
                   <XAxis dataKey="range" tick={{ fill: '#6b7280' }} />
                   <YAxis tick={{ fill: '#6b7280' }} />
@@ -335,20 +392,16 @@ const WildberriesDashboard = () => {
                       border: 'none', 
                       borderRadius: '12px',
                       boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
-                    }} 
+                    }}
+                    formatter={(value) => [value, 'Количество товаров']}
+                    labelFormatter={(label) => `Ценовой диапазон: ${label}`}
                   />
-                  <Bar dataKey="count" fill="url(#barGradient)" radius={[4, 4, 0, 0]} />
-                  <defs>
-                    <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.6}/>
-                    </linearGradient>
-                  </defs>
+                  <Bar dataKey="count" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
               <div className="h-[300px] flex items-center justify-center text-gray-400 text-lg">
-                Нет данных для отображения
+                {priceDistribution.length === 0 ? 'Загрузка данных...' : 'Нет данных для отображения'}
               </div>
             )}
           </div>
@@ -361,12 +414,12 @@ const WildberriesDashboard = () => {
             </h3>
             {discountRatingData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <ScatterChart data={discountRatingData}>
+                <ScatterChart data={discountRatingData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e0e7ff" />
                   <XAxis 
                     type="number" 
                     dataKey="rating" 
-                    domain={[0, 5]} 
+                    domain={[3, 5]} 
                     tick={{ fill: '#6b7280' }}
                     label={{ value: 'Рейтинг', position: 'insideBottom', offset: -5, style: { fill: '#6b7280' } }}
                   />
@@ -394,7 +447,7 @@ const WildberriesDashboard = () => {
               </ResponsiveContainer>
             ) : (
               <div className="h-[300px] flex items-center justify-center text-gray-400 text-lg">
-                Нет данных для отображения
+                {products.length === 0 ? 'Загрузка данных...' : 'Нет товаров со скидками для отображения'}
               </div>
             )}
           </div>
@@ -451,7 +504,9 @@ const WildberriesDashboard = () => {
                 ) : filteredProducts.length === 0 ? (
                   <tr>
                     <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
-                      Товары не найдены. Попробуйте изменить фильтры или спарсить новые товары.
+                      {products.length === 0 
+                        ? 'Нет товаров. Спарсите товары для начала работы.' 
+                        : 'Товары не найдены. Попробуйте изменить фильтры.'}
                     </td>
                   </tr>
                 ) : (
@@ -503,28 +558,6 @@ const WildberriesDashboard = () => {
           )}
         </div>
       </div>
-
-      <style jsx>{`
-        .slider::-webkit-slider-thumb {
-          appearance: none;
-          height: 20px;
-          width: 20px;
-          border-radius: 50%;
-          background: linear-gradient(45deg, #8b5cf6, #3b82f6);
-          cursor: pointer;
-          box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
-        }
-        
-        .slider::-moz-range-thumb {
-          height: 20px;
-          width: 20px;
-          border-radius: 50%;
-          background: linear-gradient(45deg, #8b5cf6, #3b82f6);
-          cursor: pointer;
-          border: none;
-          box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
-        }
-      `}</style>
     </div>
   );
 };
